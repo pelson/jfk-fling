@@ -65,25 +65,20 @@ class RealTimeSubprocess(subprocess.Popen):
             self._write_to_stderr(stderr_contents)
 
 
-class CKernel(Kernel):
-    implementation = 'jupyter_c_kernel'
-    implementation_version = '1.0'
-    language = 'c'
-    language_version = 'C11'
-    language_info = {'name': 'c',
+class FortranKernel(Kernel):
+    implementation = 'jupyter_fortran_kernel'
+    implementation_version = '0.1'
+    language = 'Fortran'
+    language_version = 'F2008'
+    language_info = {'name': 'fortran',
                      'mimetype': 'text/plain',
-                     'file_extension': 'c'}
-    banner = "C kernel.\n" \
-             "Uses gcc, compiles in C11, and creates source code files and executables in temporary folder.\n"
+                     'file_extension': 'f90'}
+    banner = "Fortran kernel.\n" \
+             "Uses gfortran, compiles in F2008, and creates source code files and executables in temporary folder.\n"
 
     def __init__(self, *args, **kwargs):
-        super(CKernel, self).__init__(*args, **kwargs)
+        super(FortranKernel, self).__init__(*args, **kwargs)
         self.files = []
-        mastertemp = tempfile.mkstemp(suffix='.out')
-        os.close(mastertemp[0])
-        self.master_path = mastertemp[1]
-        filepath = path.join(path.dirname(path.realpath(__file__)), '..', 'resources', 'master.c')
-        subprocess.call(['gcc', filepath, '-std=c11', '-rdynamic', '-ldl', '-o', self.master_path])
 
     def cleanup_files(self):
         """Remove all the temporary files created by the kernel"""
@@ -111,34 +106,34 @@ class CKernel(Kernel):
                                   lambda contents: self._write_to_stdout(contents.decode()),
                                   lambda contents: self._write_to_stderr(contents.decode()))
 
-    def compile_with_gcc(self, source_filename, binary_filename):
-        args = ['gcc', source_filename, '-std=c11', '-fPIC', '-shared', '-rdynamic', '-o', binary_filename]
+    def compile_with_gfortran(self, source_filename, binary_filename):
+        args = ['gfortran', source_filename, '-std=f2008', '-o', binary_filename]
         return self.create_jupyter_subprocess(args)
 
     def do_execute(self, code, silent, store_history=True,
                    user_expressions=None, allow_stdin=False):
-        with self.new_temp_file(suffix='.c') as source_file:
+        with self.new_temp_file(suffix='.f90') as source_file:
             source_file.write(code)
             source_file.flush()
             with self.new_temp_file(suffix='.out') as binary_file:
-                p = self.compile_with_gcc(source_file.name, binary_file.name)
+                p = self.compile_with_gfortran(source_file.name, binary_file.name)
                 while p.poll() is None:
                     p.write_contents()
                 p.write_contents()
                 if p.returncode != 0:  # Compilation failed
                     self._write_to_stderr(
-                            "[C kernel] GCC exited with code {}, the executable will not be executed".format(
+                            "[Fortran kernel] gfortran exited with code {}, the executable will not be executed".format(
                                     p.returncode))
                     return {'status': 'ok', 'execution_count': self.execution_count, 'payload': [],
                             'user_expressions': {}}
 
-        p = self.create_jupyter_subprocess([self.master_path, binary_file.name])
+        p = self.create_jupyter_subprocess(binary_file.name)
         while p.poll() is None:
             p.write_contents()
         p.write_contents()
 
         if p.returncode != 0:
-            self._write_to_stderr("[C kernel] Executable exited with code {}".format(p.returncode))
+            self._write_to_stderr("[Fortran kernel] Executable exited with code {}".format(p.returncode))
         return {'status': 'ok', 'execution_count': self.execution_count, 'payload': [], 'user_expressions': {}}
 
     def do_shutdown(self, restart):
