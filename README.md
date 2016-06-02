@@ -17,9 +17,13 @@ Shamelessly hacked together from [jupyter-c-kernel](https://github.com/brendan-r
  * `jupyter-kernelspec install fortran_spec/`
  * `jupyter-notebook`. Enjoy!
 
+## Example of notebook
+
+[Example of notebook](example-notebook.ipynb "Example of notebook")
+
 ## Contributing
 
-Creates branches named `issue-X` where `X` is the no os the issue.
+Create branches named `issue-X` where `X` is the no of the issue.
 Rebase instead of merge.
 
 ## License
