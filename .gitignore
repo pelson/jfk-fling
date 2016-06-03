@@ -1,6 +1,10 @@
-__pycache__
-*.pyc
 build/
 dist/
 MANIFEST
 .idea/
+*.egg-info/
+*.egg
+*.py[cod]
+__pycache__/
+*.so
+*~
