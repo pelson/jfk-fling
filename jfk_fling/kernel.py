@@ -1,90 +1,9 @@
 from ipykernel.kernelbase import Kernel
-import subprocess
 import tempfile
 import os
-import os.path as path
-
 
 from .realtime_subprocess import RealTimeSubprocess
-
-
-class FVisitor:
-    def visit(self, node):
-        meth_name = 'visit_{}'.format(type(node).__name__)
-        
-        # Get the specific method for this type, else
-        # use the generic one.
-        method = getattr(self, meth_name, self.generic_visit)
-
-        return method(node)
-    
-    def generic_visit(self, node):
-        # Call all the children of this node.
-        if hasattr(node, 'content'):
-            return [self.visit(child) for child in node.content]
-        else:
-            return self.visit_generic_terminal_node(node)
-    
-    def visit_generic_terminal_node(self, node):
-        pass
-
-
-class FortranGatherer(FVisitor):
-    """
-    A fortran parse tree visitor that separates all
-    statements from "definition blocks".
-
-    """
-    def __init__(self):
-        self.statement_nodes = []
-        self.definition_nodes = []
-
-    def extend(self, snippet):
-        from fparser.two.parser import ParserFactory
-        from fparser.common.readfortran import FortranStringReader
-
-        source = """
-        PROGRAM tmp_prog
-            {}
-        END PROGRAM tmp_prog
-        """.format(snippet).strip()
-
-        reader = FortranStringReader(source)
-        parser = ParserFactory().create(std="f2008")
-        program = parser(reader)
-        self.visit(program)
-
-    def to_program(self):
-        TEMPLATE = """
-PROGRAM main
-
-{statements}
-  
-CONTAINS
-
-{definitions}
-
-END PROGRAM main
-""".strip()
-        import textwrap
-        statements = '\n'.join(str(node) for node in self.statement_nodes)
-        definitions = '\n'.join(str(node) for node in self.definition_nodes)
-
-        prog = TEMPLATE.format(
-            statements=textwrap.indent(statements, '  '),
-            definitions=textwrap.indent(definitions, '  '))
-
-        return prog
-
-    def generic_visit(self, node):
-        print(node.__class__.__name__)
-        return super().generic_visit(node)
-
-    def visit_Subroutine_Subprogram(self, node):
-        self.definition_nodes.append(node)
-
-    def visit_Execution_Part(self, node):
-        self.statement_nodes.append(node)
+from .fprogram import FortranGatherer
 
 
 class FortranKernel(Kernel):
@@ -94,9 +13,17 @@ class FortranKernel(Kernel):
     language_version = 'F2008'
     language_info = {'name': 'fortran',
                      'mimetype': 'text/plain',
-                     'file_extension': 'f90'}
-    banner = "Fortran kernel.\n" \
-             "Uses gfortran, compiles in F2008, and creates source code files and executables in temporary folder.\n"
+                     'file_extension': '.f90'}
+    banner = ("Fortran kernel.\n"
+              "Uses gfortran, compiles in F2008, and creates source code "
+              "files and executables in temporary folder.\n")
+
+    # TODO:
+    #  * Since we have all the definition nodes, implement autocomplete.
+    #  * Include a magic that dumps the fortran for the notebook.
+    #  * Look into ways of storing all variables, and then restoring them for
+    #    execution (since we know the names of all variables from our node
+    #    information).
 
     def __init__(self, *args, **kwargs):
         super(FortranKernel, self).__init__(*args, **kwargs)
@@ -110,49 +37,134 @@ class FortranKernel(Kernel):
 
     def new_temp_file(self, **kwargs):
         """Create a new temp file to be deleted when the kernel shuts down"""
-        # We don't want the file to be deleted when closed, but only when the kernel stops
+        # We don't want the file to be deleted when closed, but only when
+        # the kernel stops
         kwargs['delete'] = False
         kwargs['mode'] = 'w'
         file = tempfile.NamedTemporaryFile(**kwargs)
         self.files.append(file.name)
+#        file = open(os.path.join(os.path.dirname(__file__), 'tmp.f90'), 'w')
+#        self.files.append(file.name)
         return file
 
     def _write_to_stdout(self, contents):
-        self.send_response(self.iopub_socket, 'stream', {'name': 'stdout', 'text': contents})
+        self.send_response(
+            self.iopub_socket, 'stream', {'name': 'stdout', 'text': contents})
 
     def _write_to_stderr(self, contents):
-        self.send_response(self.iopub_socket, 'stream', {'name': 'stderr', 'text': contents})
+        self.send_response(
+            self.iopub_socket, 'stream', {'name': 'stderr', 'text': contents})
 
     def create_jupyter_subprocess(self, cmd):
-        return RealTimeSubprocess(cmd,
-                                  lambda contents: self._write_to_stdout(contents.decode()),
-                                  lambda contents: self._write_to_stderr(contents.decode()))
+        return RealTimeSubprocess(
+            cmd,
+            lambda contents: self._write_to_stdout(contents.decode()),
+            lambda contents: self._write_to_stderr(contents.decode()))
 
     def compile_with_gfortran(self, source_filename, binary_filename):
         compiler = os.environ.get('FC', 'gfortran')
         fflags = os.environ.get('FFLAGS', '').split(' ')
-        args = [compiler, source_filename, '-std=f2008'] + fflags + ['-o', binary_filename]
+        args = ([compiler, source_filename, '-std=f2008'] +
+                fflags +
+                ['-o', binary_filename])
         return self.create_jupyter_subprocess(args)
+
+    def do_complete(self, code, cursor_pos):
+        with self.new_temp_file(suffix='.f90') as source_file:
+            source_file.write(code)
+            source_file.flush()
+
+        import fortls.langserver
+        ls = fortls.langserver.LangServer(None)
+
+        directory = os.path.abspath(os.path.dirname(source_file.name))
+        request = {"params": {"rootPath": directory}}
+        ls.serve_initialize(request)
+
+        fname = os.path.abspath(source_file.name)
+        # curr_pos is the character number of the multi-line string.
+        split = code.split('\n')
+        chars_seen = 0
+        for line_number, line in enumerate(split):
+            if cursor_pos <= chars_seen + len(line) + 1:
+                break
+            chars_seen += len(line) + 1  # (don't forget the newline)
+        char = (cursor_pos - chars_seen)
+        request = {
+            "params": {
+                "textDocument": {"uri": fname},
+                "position": {"line": line_number, "character": char}}}
+
+        response = ls.serve_autocomplete(request)
+
+        matches = [item['label'] for item in response['items']]
+        if matches:
+            m = matches[0]
+            for i in range(1, len(m)):
+                if m[:i].lower() != line[char-i-1:char].lower():
+                    break
+
+            cursor_pos = cursor_pos - i + 1
+        return {'matches': matches,
+                'cursor_end': cursor_pos,
+                'cursor_start': cursor_pos,
+                'metadata': {},
+                'status': 'ok'}
 
     def do_execute(self, code, silent, store_history=True,
                    user_expressions=None, allow_stdin=False):
 
-        self.gatherer.extend(code)
-        code = self.gatherer.to_program()
+        if code.strip() == '!! show_mod':
+            self._write_to_stdout(self.gatherer.to_program())
+            resp = {
+                'status': 'ok',
+                'execution_count': self.execution_count,
+                'payload': [],
+                'user_expressions': {}}
+            return resp
+
+        try:
+            self.gatherer.extend(code)
+        except Exception as exception:
+            msg = '[FAILED TO PARSE:] {}'.format(str(exception))
+            self._write_to_stderr(msg)
+
+            resp = {
+                'status': 'ok',
+                'execution_count': self.execution_count,
+                'payload': [],
+                'user_expressions': {}}
+            return resp
+        program_code = self.gatherer.to_program()
         with self.new_temp_file(suffix='.f90') as source_file:
-            source_file.write(code)
+            source_file.write(program_code)
             source_file.flush()
+            if code.startswith('!!fragment'):
+                resp = {
+                    'status': 'ok',
+                    'execution_count': self.execution_count,
+                    'payload': [],
+                    'user_expressions': {}}
+                return resp
             with self.new_temp_file(suffix='.out') as binary_file:
-                p = self.compile_with_gfortran(source_file.name, binary_file.name)
+                p = self.compile_with_gfortran(
+                    source_file.name, binary_file.name)
                 while p.poll() is None:
                     p.write_contents()
                 p.write_contents()
                 if p.returncode != 0:  # Compilation failed
-                    self._write_to_stderr(
-                            "[Fortran kernel] gfortran exited with code {}, the executable will not be executed".format(
-                                    p.returncode))
-                    return {'status': 'ok', 'execution_count': self.execution_count, 'payload': [],
-                            'user_expressions': {}}
+                    # Remove the most recently added sub-program.
+                    del self.gatherer.programs[-1]
+                    msg = ("[Fortran kernel] gfortran exited with code {}, "
+                           "the executable will not be executed"
+                           .format(p.returncode))
+                    self._write_to_stderr(msg)
+                    resp = {
+                        'status': 'ok',
+                        'execution_count': self.execution_count,
+                        'payload': [],
+                        'user_expressions': {}}
+                    return resp
 
         p = self.create_jupyter_subprocess(binary_file.name)
         while p.poll() is None:
@@ -160,9 +172,20 @@ class FortranKernel(Kernel):
         p.write_contents()
 
         if p.returncode != 0:
-            self._write_to_stderr("[Fortran kernel] Executable exited with code {}".format(p.returncode))
-        return {'status': 'ok', 'execution_count': self.execution_count, 'payload': [], 'user_expressions': {}}
+            # e.g. segfault...
+            del self.gatherer.programs[-1]
+            msg = ("[Fortran kernel] Executable exited with code {}"
+                   "".format(p.returncode))
+            self._write_to_stderr(msg)
+        resp = {
+            'status': 'ok',
+            'execution_count': self.execution_count,
+            'payload': [],
+            'user_expressions': {},
+        }
+        return resp
 
     def do_shutdown(self, restart):
-        """Cleanup the created source code files and executables when shutting down the kernel"""
+        # Cleanup the created source code files and executables when
+        # shutting down the kernel.
         self.cleanup_files()
