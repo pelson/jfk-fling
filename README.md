@@ -13,10 +13,12 @@ A number of resources have been made available that build upon the jfk-fling ker
 some of which are listed below:
 
  * [Introduction to jfk-fling]()
+ * [Fortran 90 with jfk-fling]()
+ * [Object-oriented programming with jfk-fling]()
  * ...
 
 
-*Please submit a pull request to add a link to any other jfk-fling notebook material*
+*Please submit a pull request to add a link to any other jfk-fling notebook material.*
 
 
 ## License
@@ -40,7 +42,8 @@ fork the repository, or request merge access to this repository.
    For example, suppose you have a long-running execution cell followed by a simple cell to print the results, it will result in the long-running
    code being executed twice.
 
- * In order to interpret the code we use [fparser](https://github.com/stfc/fparser)
+ * In order to interpret the code we use [fparser](https://github.com/stfc/fparser). Any limitations
+   of parsing within fparser are therefore inherited, as well as some additional constraints on the source form.
 
 
 ## Inspiration
