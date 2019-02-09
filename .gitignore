@@ -8,3 +8,6 @@ MANIFEST
 __pycache__/
 *.so
 *~
+
+*.swp
+.ipynb_checkpoints
