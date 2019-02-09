@@ -1,0 +1,9 @@
+{
+  "argv": [
+    "jfk-fling",
+    "-f", "{connection_file}",
+    "-std=f2008",
+  ],
+  "display_name": "Fortran 2008",
+  "language": "f2008"
+}

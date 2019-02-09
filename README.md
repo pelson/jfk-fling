@@ -1,31 +1,25 @@
-# Minimal Fortran kernel for Jupyter
+# Jupyter Fortran Kernel
 
-Shamelessly hacked together from [jupyter-c-kernel](https://github.com/brendan-rius/jupyter-c-kernel)
+Inspired by the incredible power of the C++ REPL [Cling](https://github.com/root-project/cling)
+and its assosiated [Jupyter](https://jupyter.org/) kernel [xeus-cling](https://github.com/QuantStack/xeus-cling),
+``jfk-fling`` is a [prototype](#Limitations) kernel that facilitates iterative and investigatory computing
+using modern Fotran.
 
-## Manual installation
 
- * Make sure you have the following requirements installed:
-  * gfortran
-  * jupyter
-  * python 3
-  * pip
+## Limitations
 
-### Step-by-step:
- * `git clone git@github.com:ZedThree/jupyter-fortran-kernel.git`
- * `pip install -e --user jupyter-fortran-kernel`
- * `cd jupyter-fortran-kernel`
- * `jupyter-kernelspec install fortran_spec/`
- * `jupyter-notebook`. Enjoy!
+ * Whilst it may appear that cells are being executed iteratively, each cell is in fact an entirely independent execution environment.
+   For example, suppose you have a long-running execution cell followed by a simple cell to print the results, it will result in the long-running
+   code being executed twice.
 
-## Example of notebook
+ * In order to interpret the code we use [fparser](https://github.com/stfc/fparser)
 
-[Example of notebook](example-notebook.ipynb "Example of notebook")
 
-## Contributing
+## Inspiration
 
-Create branches named `issue-X` where `X` is the no of the issue.
-Rebase instead of merge.
-
-## License
-
-[MIT](LICENSE.txt)
+ * [Cling](https://github.com/root-project/cling)
+ * [fparser](https://github.com/stfc/fparser)
+ * [Jupyter](https://jupyter.org/)
+ * [jupyter-fortran-kernel](https://github.com/ZedThree/jupyter-fortran-kernel) &
+   [jupyter-c-kernel](https://github.com/brendan-rius/jupyter-c-kernel) - the design of this kernel was significantly influenced by these implementations.
+ * [xeus-cling](https://github.com/QuantStack/xeus-cling)
