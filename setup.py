@@ -23,4 +23,9 @@ setuptools.setup(
         "Operating System :: OS Independent",
         "Development Status :: 3 - Alpha",
     ],
+    entry_points={
+        'console_scripts': [
+            'jfk-fling = jfk_fling.launch_kernel:main',
+        ],
+    }
 )
