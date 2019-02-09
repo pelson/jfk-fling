@@ -129,7 +129,9 @@ class FortranKernel(Kernel):
                                   lambda contents: self._write_to_stderr(contents.decode()))
 
     def compile_with_gfortran(self, source_filename, binary_filename):
-        args = ['gfortran', source_filename, '-std=f2008', '-o', binary_filename]
+        compiler = os.environ.get('FC', 'gfortran')
+        fflags = os.environ.get('FFLAGS', '').split(' ')
+        args = [compiler, source_filename, '-std=f2008'] + fflags + ['-o', binary_filename]
         return self.create_jupyter_subprocess(args)
 
     def do_execute(self, code, silent, store_history=True,
