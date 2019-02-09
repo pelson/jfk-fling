@@ -1,0 +1,7 @@
+# Executed in the root of the repository.
+
+# Install the package itself.
+pip install .
+
+# Install to the conda environment using --sys-prefix.
+jupyter-kernelspec install ./kernels/f2008 --sys-prefix

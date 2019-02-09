@@ -6,6 +6,8 @@ and its associated [Jupyter](https://jupyter.org/) kernel [xeus-cling](https://g
 using modern Fortran.
 
 
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/pelson/jfk-fling/master?filepath=notebooks%2Fintroduction.ipynb)
+
 ## Materials designed for the jfk-fling kernel
 
 The purpose of the jfk-fling kernel is to speed up the learning of modern Fortran.

@@ -1,0 +1,7 @@
+channels:
+ - defaults
+dependencies:
+ - gfortran_linux-64
+ - pip:
+   - fparser
+   - ipykernel

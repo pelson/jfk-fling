@@ -1,0 +1,7 @@
+#!/bin/bash
+
+# Properly source the environment, as we need it for the FC
+# and FFLAGS environment variables.
+source activate root
+
+exec "$@"
