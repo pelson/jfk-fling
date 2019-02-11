@@ -114,6 +114,7 @@ class FortranKernel(Kernel):
     def do_execute(self, code, silent, store_history=True,
                    user_expressions=None, allow_stdin=False):
 
+        fragment = False
         if code.strip() == '%code':
             self._write_to_stdout(self.gatherer.to_program())
             resp = {
@@ -131,6 +132,10 @@ class FortranKernel(Kernel):
                 'user_expressions': {}}
             return resp
 
+        elif code.strip().startswith('%fragment') or code.strip().startswith('%%fragment'):
+            fragment = True
+            _, code = code.split('%fragment', 1)
+
         try:
             self.gatherer.extend(code)
         except Exception as exception:
@@ -147,7 +152,7 @@ class FortranKernel(Kernel):
         with self.new_temp_file(suffix='.f90') as source_file:
             source_file.write(program_code)
             source_file.flush()
-            if code.startswith('!!fragment'):
+            if fragment:
                 resp = {
                     'status': 'ok',
                     'execution_count': self.execution_count,
