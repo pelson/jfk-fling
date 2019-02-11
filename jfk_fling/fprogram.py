@@ -1,3 +1,5 @@
+import jinja2
+
 
 
 class FVisitor:
@@ -49,9 +51,80 @@ class DeleteNodeType(FVisitor):
                 child.string = ''
                 # child.items = ('foo',)
                 import fparser.two.Fortran2003
-                child.content = [
-                    fparser.two.Fortran2003.Comment('implicit None')]
+                idx = children.index(child)
+#                children[idx] = fparser.two.Fortran2003.Comment('')
         super().generic_visit(node)
+
+
+class ProgramVisitor(FVisitor):
+    def __init__(self):
+        super().__init__()
+        self.name = None
+        self.definitions = []
+        self.specification = SpecificationVisitor()
+        self.executions = None
+
+    def generic_visit(self, node):
+        raise RuntimeError(str(node.__class__.__name__))
+
+    def visit_Program_Stmt(self, node):
+        # Call the super class version of generic_visit (the one
+        # that doesn't raise!)
+        print('FOO!', node.use_names)
+        super().generic_visit(node)
+
+    def visit_Main_Program(self, node):
+        self.name = node.string
+        super().generic_visit(node)
+
+    def visit_Specification_Part(self, node):
+        self.specification.visit(node)
+
+    def visit_Execution_Part(self, node):
+        self.executions = node
+
+    def visit_End_Program_Stmt(self, node):
+        pass
+
+
+class SpecificationVisitor(FVisitor):
+    def __init__(self):
+        self.use_nodes = []
+        self.implicit_nodes = []
+        self.type_decl_nodes = []
+
+    def visit_Type_Declaration_Stmt(self, node):
+        self.type_decl_nodes.append(node)
+
+    def visit_Implicit_Stmt(self, node):
+        self.implicit_nodes.append(node)
+
+    def visit_Use_Stmt(self, node):
+        self.use_nodes.append(node)
+
+    def __str__(self):
+        return '\n'.join(str(node) for node in (self.use_nodes + self.implicit_nodes + [''] + self.type_decl_nodes))
+
+    @classmethod
+    def combine(cls, visitors):
+        spec = cls()
+        for specification in visitors:
+            spec.use_nodes.extend(specification.use_nodes)
+            spec.implicit_nodes.extend(specification.implicit_nodes)
+            # TODO: We could do more here, like make sure we aren't
+            # redefining entities.
+            spec.type_decl_nodes.extend(specification.type_decl_nodes)
+
+        # TODO: We need to have only one implicit node.
+        if len(spec.implicit_nodes) > 1:
+            spec.implicit_nodes = spec.implicit_nodes[-1:]
+        return spec
+
+def combine_programs(programs):
+    prog = ProgramTransaction()
+    for program in programs:
+        prog.statement_nodes.extend(program.statement_nodes)
+    return prog
 
 
 class ProgramTransaction(FVisitor):
@@ -61,6 +134,8 @@ class ProgramTransaction(FVisitor):
         self.definition_nodes = []
         self.spec_nodes = []
         self.modules = []
+        self.prog_preamble = []
+        self.program = ProgramVisitor()
 
     def generic_visit(self, node):
         pass_through_nodes = [
@@ -73,6 +148,9 @@ class ProgramTransaction(FVisitor):
         if this_node not in pass_through_nodes:
             raise RuntimeError('Unhandled node type {}'.format(this_node))
         return super().generic_visit(node)
+
+    def visit_Main_Program(self, node):
+        self.program.visit(node)
 
     def visit_Subroutine_Subprogram(self, node):
         self.definition_nodes.append(node)
@@ -143,40 +221,42 @@ class FortranGatherer:
 
     def to_program(self):
         TEMPLATE = """
-{modules}
-
-MODULE main_mod
-
-{specifications}
-
-CONTAINS
-{definitions}
-END MODULE main_mod
-
+{{modules}}
 
 PROGRAM main
-use main_mod
+  {{ specifications|string|indent(2) }}
 
-! Redirect stdout to /dev/null for old statements
-open(unit=6, file="/dev/null", status="old")
+{% if statements %}
+  ! Redirect stdout to /dev/null for old statements
+  OPEN(unit=6, file="/dev/null", status="old")
 
-{statements}
+  {{statements|indent(2)}}
 
-! Re-enable stdout for new statements
-open(unit=6, file="/dev/stdout", status="old")
+  ! Re-enable stdout for new statements
+  OPEN(unit=6, file="/dev/stdout", status="old")
+{%- endif %}
+{% if new_statements %}
+  {{ new_statements|indent(2) }}
+{% endif %}
 
-{new_statements}
-
+{% if definitions -%}
 CONTAINS
+  {{ definitions|indent(2) }}
+{%- endif %}
+
 
 END PROGRAM main
 """.strip()
+
+        template = jinja2.Environment(
+            loader=jinja2.BaseLoader).from_string(TEMPLATE)
+
         import textwrap
         from itertools import chain
 
-        specifications = '\n'.join(
-            str(node) for node in chain.from_iterable(
-                [prog.spec_nodes for prog in self.programs]))
+        # Note we have to do more to join spec parts (use, implicit, defn)
+        specifications = SpecificationVisitor.combine(
+            [prog.program.specification for prog in self.programs])
         statements = '\n'.join(
             str(node) for node in chain.from_iterable(
                 [prog.statement_nodes for prog in self.programs[:-1]]))
@@ -191,13 +271,15 @@ END PROGRAM main
             str(node) for node in chain.from_iterable(
                 [prog.modules for prog in self.programs]))
 
-        print(statements)
-        prog = TEMPLATE.format(
-            specifications=textwrap.indent(specifications, '  '),
-            statements=textwrap.indent(statements, '  '),
-            new_statements=textwrap.indent(new_statements, '  '),
-            definitions=textwrap.indent(definitions, '  '),
+        prog = template.render(
+            specifications=specifications,
+            statements=statements,
+            new_statements=new_statements,
+            definitions=definitions,
             modules=modules,
             )
+        while '\n\n\n' in prog:
+            prog = prog.replace('\n\n\n', '\n\n')
+        prog = prog.strip()
 
         return prog
