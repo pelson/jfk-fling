@@ -114,8 +114,16 @@ class FortranKernel(Kernel):
     def do_execute(self, code, silent, store_history=True,
                    user_expressions=None, allow_stdin=False):
 
-        if code.strip() == '!! show_mod':
+        if code.strip() == '%code':
             self._write_to_stdout(self.gatherer.to_program())
+            resp = {
+                'status': 'ok',
+                'execution_count': self.execution_count,
+                'payload': [],
+                'user_expressions': {}}
+            return resp
+        elif code.strip() == '%clear':
+            self.gatherer.clear()
             resp = {
                 'status': 'ok',
                 'execution_count': self.execution_count,

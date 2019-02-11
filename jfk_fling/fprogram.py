@@ -138,6 +138,9 @@ class FortranGatherer:
         cell_prog.visit(program)
         self.programs.append(cell_prog)
 
+    def clear(self, ):
+        del self.programs[:]
+
     def to_program(self):
         TEMPLATE = """
 {modules}
