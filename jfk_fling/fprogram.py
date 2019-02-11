@@ -62,7 +62,8 @@ class ProgramVisitor(FVisitor):
         self.name = None
         self.definitions = []
         self.specification = SpecificationVisitor()
-        self.executions = None
+        self.executions = []
+        self.internal_subprogram = []
 
     def generic_visit(self, node):
         raise RuntimeError(str(node.__class__.__name__))
@@ -81,11 +82,34 @@ class ProgramVisitor(FVisitor):
         self.specification.visit(node)
 
     def visit_Execution_Part(self, node):
-        self.executions = node
+        self.executions.append(node)
+
+    def visit_Internal_Subprogram_Part(self, node):
+        super().generic_visit(node)
+
+    def visit_Function_Subprogram(self, node):
+        self.internal_subprogram.append(node)
+
+    def visit_Subroutine_Subprogram(self, node):
+        self.internal_subprogram.append(node)
+
+    def visit_Contains_Stmt(self, node):
+        # Drop this one.
+        pass
 
     def visit_End_Program_Stmt(self, node):
         pass
 
+    @classmethod
+    def combine(cls, programs):
+        program = cls()
+        program.specification = SpecificationVisitor.combine(
+            [prog.specification for prog in programs])
+        for prog in programs:
+            program.definitions.extend(prog.definitions)
+            program.executions.extend(prog.executions)
+            program.internal_subprogram.extend(prog.internal_subprogram)
+        return program
 
 class SpecificationVisitor(FVisitor):
     def __init__(self):
@@ -119,12 +143,6 @@ class SpecificationVisitor(FVisitor):
         if len(spec.implicit_nodes) > 1:
             spec.implicit_nodes = spec.implicit_nodes[-1:]
         return spec
-
-def combine_programs(programs):
-    prog = ProgramTransaction()
-    for program in programs:
-        prog.statement_nodes.extend(program.statement_nodes)
-    return prog
 
 
 class ProgramTransaction(FVisitor):
@@ -183,6 +201,11 @@ class ClassPrinter(FVisitor):
         return super().generic_visit(node)
 
 
+def rstrip_lines(string):
+    lines = [line.rstrip() for line in string.split('\n')]
+    return '\n'.join(lines)
+
+
 class FortranGatherer:
     """
     A fortran parse tree visitor that separates all
@@ -221,30 +244,29 @@ class FortranGatherer:
 
     def to_program(self):
         TEMPLATE = """
-{{modules}}
+{{ modules }}
 
 PROGRAM main
-  {{ specifications|string|indent(2) }}
+  {{ program.specification|string|indent(2) }}
 
-{% if statements %}
+{% if previous_program.executions %}
   ! Redirect stdout to /dev/null for old statements
   OPEN(unit=6, file="/dev/null", status="old")
 
-  {{statements|indent(2)}}
+  {{ previous_program.executions|join('\n')|indent(2) }}
 
   ! Re-enable stdout for new statements
   OPEN(unit=6, file="/dev/stdout", status="old")
 {%- endif %}
-{% if new_statements %}
-  {{ new_statements|indent(2) }}
+
+{% if this_program.executions %}
+  {{ this_program.executions|join('\n')|indent(2) }}
 {% endif %}
 
-{% if definitions -%}
-CONTAINS
-  {{ definitions|indent(2) }}
+{% if program.internal_subprogram -%}
+  CONTAINS
+    {{ program.internal_subprogram|join('\n\n')|indent(4) }}
 {%- endif %}
-
-
 END PROGRAM main
 """.strip()
 
@@ -254,16 +276,17 @@ END PROGRAM main
         import textwrap
         from itertools import chain
 
-        # Note we have to do more to join spec parts (use, implicit, defn)
-        specifications = SpecificationVisitor.combine(
-            [prog.program.specification for prog in self.programs])
-        statements = '\n'.join(
-            str(node) for node in chain.from_iterable(
-                [prog.statement_nodes for prog in self.programs[:-1]]))
+        program = ProgramVisitor.combine(
+            [prog.program for prog in self.programs])
+        previous_program = ProgramVisitor.combine(
+            [prog.program for prog in self.programs[:-1]])
 
-        new_statements = '\n'.join(
-            str(node) for node in chain.from_iterable(
-                [prog.statement_nodes for prog in self.programs[-1:]]))
+        # Note, in theory self.programs could be empty...
+        this_program = self.programs[-1].program
+
+        print('THIS:', this_program.executions)
+
+        # Note we have to do more to join spec parts (use, implicit, defn)
         definitions = '\n'.join(
             str(node) for node in chain.from_iterable(
                 [prog.definition_nodes for prog in self.programs]))
@@ -272,12 +295,13 @@ END PROGRAM main
                 [prog.modules for prog in self.programs]))
 
         prog = template.render(
-            specifications=specifications,
-            statements=statements,
-            new_statements=new_statements,
+            program=program,
+            previous_program=previous_program,
+            this_program=this_program,
             definitions=definitions,
             modules=modules,
             )
+        prog = rstrip_lines(prog)
         while '\n\n\n' in prog:
             prog = prog.replace('\n\n\n', '\n\n')
         prog = prog.strip()
