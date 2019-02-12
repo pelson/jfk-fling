@@ -1,0 +1,28 @@
+########
+Input[1]
+########
+
+program hello
+   implicit none
+      print*, "Hello, World!"
+      end program
+SUBROUTINE main
+
+    print *, 'sub main'
+END SUBROUTINE main
+
+########
+Output[1]
+########
+
+SUBROUTINE main
+  PRINT *, 'sub main'
+END SUBROUTINE main
+
+PROGRAM hello
+  IMPLICIT NONE
+
+  PRINT *, "Hello, World!"
+
+END PROGRAM hello
+

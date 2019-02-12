@@ -9,5 +9,9 @@ __pycache__/
 *.so
 *~
 
+*.mod
+*.o
+*.out
+
 *.swp
 .ipynb_checkpoints
