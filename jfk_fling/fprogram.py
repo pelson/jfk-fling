@@ -71,7 +71,7 @@ class Program(ComponentVisitor):
 
 class MainProgram(ComponentVisitor):
     """
-    Represents a PROGRAM..END PROGRAM block. (R1101)
+    Represents a ``PROGRAM..END PROGRAM`` block. (R1101)
 
     """
     pass_through_nodes = ['End_Program_Stmt', 'Contains_Stmt']
@@ -80,14 +80,11 @@ class MainProgram(ComponentVisitor):
         super().__init__()
         self.name = None
         self.definitions = []
-        self.specification = SpecificationVisitor()
+        self.specification = Specification()
         self.executions = []
         self.internal_subprogram = []
 
     def visit_Program_Stmt(self, node):
-        # Call the super class version of generic_visit (the one
-        # that doesn't raise!)
-        print('FOO!', node.use_names)
         self.visit_children(node)
 
     def visit_Main_Program(self, node):
@@ -112,7 +109,7 @@ class MainProgram(ComponentVisitor):
     @classmethod
     def combine(cls, programs):
         program = cls()
-        program.specification = SpecificationVisitor.combine(
+        program.specification = Specification.combine(
             [prog.specification for prog in programs])
         for prog in programs:
             program.definitions.extend(prog.definitions)
@@ -121,7 +118,7 @@ class MainProgram(ComponentVisitor):
         return program
 
 
-class SpecificationVisitor(ComponentVisitor):
+class Specification(ComponentVisitor):
     """
     Represents a specification-construct (R204)
 
