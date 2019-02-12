@@ -74,21 +74,19 @@ class MainProgram(ComponentVisitor):
     Represents a ``PROGRAM..END PROGRAM`` block. (R1101)
 
     """
-    pass_through_nodes = ['End_Program_Stmt', 'Contains_Stmt']
+    pass_through_nodes = ['End_Program_Stmt', 'Contains_Stmt', 'Main_Program',
+                          'Internal_Subprogram_Part']
 
     def __init__(self):
         super().__init__()
-        self.name = None
+        self.name = 'main'
         self.definitions = []
         self.specification = Specification()
         self.executions = []
         self.internal_subprogram = []
 
     def visit_Program_Stmt(self, node):
-        self.visit_children(node)
-
-    def visit_Main_Program(self, node):
-        self.name = node.string
+        self.name = str(node.items[1])
         self.visit_children(node)
 
     def visit_Specification_Part(self, node):
@@ -96,9 +94,6 @@ class MainProgram(ComponentVisitor):
 
     def visit_Execution_Part(self, node):
         self.executions.append(node)
-
-    def visit_Internal_Subprogram_Part(self, node):
-        self.visit_children(node)
 
     def visit_Function_Subprogram(self, node):
         self.internal_subprogram.append(node)
@@ -115,6 +110,8 @@ class MainProgram(ComponentVisitor):
             program.definitions.extend(prog.definitions)
             program.executions.extend(prog.executions)
             program.internal_subprogram.extend(prog.internal_subprogram)
+            # We use the last name seen for the program.
+            program.name = prog.name
         return program
 
 
@@ -180,7 +177,7 @@ def rstrip_lines(string):
 PROGRAM_TEMPLATE = """
 {{ modules }}
 
-PROGRAM main
+PROGRAM {{ main_program.name }}
   {{ program.specification|string|indent(2) }}
 
 {% if previous_program.executions %}
@@ -201,7 +198,7 @@ PROGRAM main
   CONTAINS
     {{ program.internal_subprogram|join('\n\n')|indent(4) }}
 {%- endif %}
-END PROGRAM main
+END PROGRAM {{ main_program.name }}
 """
 
 
@@ -219,11 +216,11 @@ class FortranGatherer:
         from fparser.common.readfortran import FortranStringReader
 
         source = """
-        PROGRAM tmp_prog
+        PROGRAM main
         contains  ! NOTE: I'm exploiting a bug here.
                   ! :( https://github.com/stfc/fparser/issues/136
             {}
-        END PROGRAM tmp_prog
+        END PROGRAM main
         """.format(snippet).strip()
 
         parser = ParserFactory().create(std="f2008")
@@ -265,6 +262,7 @@ class FortranGatherer:
             previous_program=previous_program,
             this_program=this_program,
             modules=modules,
+            main_program=program,
             )
         # Rather than trying to implement a perfect whitespace Jinja2
         # template we post-process the result, stripping out spurious
