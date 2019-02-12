@@ -52,21 +52,31 @@ class Program(ComponentVisitor):
     pass_through_nodes = ['Program']
 
     def __init__(self):
-        self.definition_nodes = []
+        self.definitions = []
         self.modules = []
-        self.program = MainProgram()
+        self.main_program = MainProgram()
 
     def visit_Main_Program(self, node):
-        self.program.visit(node)
+        self.main_program.visit(node)
 
     def visit_Subroutine_Subprogram(self, node):
-        self.definition_nodes.append(node)
+        self.definitions.append(node)
 
     def visit_Function_Subprogram(self, node):
-        self.definition_nodes.append(node)
+        self.definitions.append(node)
 
     def visit_Module(self, node):
         self.modules.append(node)
+
+    @classmethod
+    def combine(cls, programs):
+        prg = Program()
+        for program in programs:
+            prg.modules.extend(program.modules)
+            prg.definitions.extend(program.definitions)
+        prg.main_program = MainProgram.combine(
+            [program.main_program for program in programs])
+        return prg
 
 
 class MainProgram(ComponentVisitor):
@@ -80,7 +90,6 @@ class MainProgram(ComponentVisitor):
     def __init__(self):
         super().__init__()
         self.name = 'main'
-        self.definitions = []
         self.specification = Specification()
         self.executions = []
         self.internal_subprogram = []
@@ -107,7 +116,6 @@ class MainProgram(ComponentVisitor):
         program.specification = Specification.combine(
             [prog.specification for prog in programs])
         for prog in programs:
-            program.definitions.extend(prog.definitions)
             program.executions.extend(prog.executions)
             program.internal_subprogram.extend(prog.internal_subprogram)
             # We use the last name seen for the program.
@@ -176,29 +184,30 @@ def rstrip_lines(string):
 
 PROGRAM_TEMPLATE = """
 {{ modules }}
+{{ program.definitions|join('\n')|string }}
 
-PROGRAM {{ main_program.name }}
-  {{ program.specification|string|indent(2) }}
+PROGRAM {{ main_prog.name }}
+  {{ main_prog.specification|string|indent(2) }}
 
-{% if previous_program.executions %}
+{% if prev_main_prog.executions %}
   ! Redirect stdout to /dev/null for old statements
   OPEN(unit=6, file="/dev/null", status="old")
 
-  {{ previous_program.executions|join('\n')|indent(2) }}
+  {{ prev_main_prog.executions|join('\n')|indent(2) }}
 
   ! Re-enable stdout for new statements
   OPEN(unit=6, file="/dev/stdout", status="old")
 {%- endif %}
 
-{% if this_program.executions %}
-  {{ this_program.executions|join('\n')|indent(2) }}
+{% if this_main_prog.executions %}
+  {{ this_main_prog.executions|join('\n')|indent(2) }}
 {% endif %}
 
-{% if program.internal_subprogram %}
+{% if main_prog.internal_subprogram %}
   CONTAINS
-    {{ program.internal_subprogram|join('\n\n')|indent(4) }}
+    {{ main_prog.internal_subprogram|join('\n\n')|indent(4) }}
 {%- endif %}
-END PROGRAM {{ main_program.name }}
+END PROGRAM {{ main_prog.name }}
 """
 
 
@@ -237,33 +246,37 @@ class FortranGatherer:
     def clear(self, ):
         del self.programs[:]
 
-    def to_program(self):
-        template = jinja2.Environment(
-            loader=jinja2.BaseLoader).from_string(PROGRAM_TEMPLATE)
+    def template_context(self):
+        main_programs = [prog.main_program for prog in self.programs]
 
-        program = MainProgram.combine(
-            [prog.program for prog in self.programs])
-        previous_program = MainProgram.combine(
-            [prog.program for prog in self.programs[:-1]])
+        main_prog = MainProgram.combine(main_programs)
+        prev_main_prog = MainProgram.combine(main_programs[:-1])
+        this_main_prog = MainProgram.combine(main_programs[-1:])
 
-        # Note: self.programs could be empty.
-        this_program = self.programs[-1:]
-        if this_program:
-            this_program = this_program[0].program
-        else:
-            this_program = MainProgram()
+        prev_program = Program.combine(self.programs[:-1])
+        # Combine like this as self.programs could be empty.
+        current_program = Program.combine(self.programs[-1:])
+        program = Program.combine([prev_program, current_program])
 
         modules = '\n'.join(
             str(node) for node in chain.from_iterable(
                 [prog.modules for prog in self.programs]))
 
-        prog = template.render(
+        return dict(
             program=program,
-            previous_program=previous_program,
-            this_program=this_program,
+            current_program=current_program,
+            prev_main_prog=prev_main_prog,
+            this_main_prog=this_main_prog,
             modules=modules,
-            main_program=program,
-            )
+            main_prog=main_prog,
+        )
+
+    def to_program(self):
+        template = jinja2.Environment(
+            loader=jinja2.BaseLoader).from_string(PROGRAM_TEMPLATE)
+
+        prog = template.render(**self.template_context())
+
         # Rather than trying to implement a perfect whitespace Jinja2
         # template we post-process the result, stripping out spurious
         # whitespace as much as possible.
