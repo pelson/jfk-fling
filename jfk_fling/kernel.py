@@ -18,6 +18,7 @@ class FortranKernel(Kernel):
               "Uses gfortran, compiles in F2008, and creates source code "
               "files and executables in temporary folder.\n")
 
+
     # TODO:
     #  * Since we have all the definition nodes, implement autocomplete.
     #  * Include a magic that dumps the fortran for the notebook.
@@ -29,6 +30,7 @@ class FortranKernel(Kernel):
         super(FortranKernel, self).__init__(*args, **kwargs)
         self.gatherer = FortranGatherer()
         self.files = []
+        self.fragment_accumulator = []
 
     def cleanup_files(self):
         """Remove all the temporary files created by the kernel"""
@@ -135,6 +137,17 @@ class FortranKernel(Kernel):
         elif code.strip().startswith('%fragment') or code.strip().startswith('%%fragment'):
             fragment = True
             _, code = code.split('%fragment', 1)
+            self.fragment_accumulator.append(code)
+            resp = {
+                'status': 'ok',
+                'execution_count': self.execution_count,
+                'payload': [],
+                'user_expressions': {}}
+            return resp
+
+        if self.fragment_accumulator:
+            code = '\n'.join(self.fragment_accumulator) + code
+            self.fragment_accumulator = []
 
         try:
             self.gatherer.extend(code)

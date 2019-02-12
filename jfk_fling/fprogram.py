@@ -1,5 +1,6 @@
-import jinja2
+from itertools import chain
 
+import jinja2
 
 
 class FVisitor:
@@ -12,51 +13,69 @@ class FVisitor:
 
         return method(node)
 
-    def generic_visit(self, node):
+    def visit_children(self, node):
         # Call all the children of this node.
         if hasattr(node, 'content'):
             return [self.visit(child) for child in node.content]
-        else:
-            return self.visit_generic_terminal_node(node)
 
-    def visit_generic_terminal_node(self, node):
-        pass
+    def generic_visit(self, node):
+        # The fallback visitor method if there is no specific node
+        # implementation.
+        return self.visit_children(node)
 
 
-class DeleteNodeType(FVisitor):
-    def __init__(self, delete_types):
-        self.delete_types = delete_types
+class ComponentVisitor(FVisitor):
+    pass_through_nodes = []
 
-    def children(self, node):
-        # Depending on their level in the tree produced by fparser2003,
-        # some nodes have children listed in .content and some have them
-        # listed under .items. If a node has neither then it has no
-        # children.
-        if hasattr(node, "content"):
-            return node.content
-        elif hasattr(node, "items"):
-            return node.items
-        else:
-            return []
+    @classmethod
+    def process(cls, node):
+        instance = cls()
+        instance.visit(node)
+        return instance
 
     def generic_visit(self, node):
         name = node.__class__.__name__
-        children = self.children(node)
-        for child in children[:]:
-            if name in self.delete_types:
-                print('DROPPING:', child)
-                print(dir(child))
-                print(child.__dict__)
-                # children.remove(child)
-                child.string = ''
-                # child.items = ('foo',)
-                import fparser.two.Fortran2003
-                idx = children.index(child)
-#                children[idx] = fparser.two.Fortran2003.Comment('')
-        super().generic_visit(node)
+        if name not in self.pass_through_nodes:
+            raise RuntimeError(
+                'Unhandled {} type {}'.format(
+                    self.__class__.__name__,
+                    node.__class__.__name__))
+        else:
+            self.visit_children(node)
 
 
-class ProgramVisitor(FVisitor):
+class Program(ComponentVisitor):
+    """
+    Represents a whole ".f90" file. (R201)
+
+    """
+    pass_through_nodes = ['Program']
+
+    def __init__(self):
+        self.definition_nodes = []
+        self.modules = []
+        self.program = MainProgram()
+
+    def visit_Main_Program(self, node):
+        self.program.visit(node)
+
+    def visit_Subroutine_Subprogram(self, node):
+        self.definition_nodes.append(node)
+
+    def visit_Function_Subprogram(self, node):
+        self.definition_nodes.append(node)
+
+    def visit_Module(self, node):
+        self.modules.append(node)
+
+
+class MainProgram(ComponentVisitor):
+    """
+    Represents a PROGRAM..END PROGRAM block. (R1101)
+
+    """
+    pass_through_nodes = ['End_Program_Stmt', 'Contains_Stmt']
+
     def __init__(self):
         super().__init__()
         self.name = None
@@ -65,18 +84,15 @@ class ProgramVisitor(FVisitor):
         self.executions = []
         self.internal_subprogram = []
 
-    def generic_visit(self, node):
-        raise RuntimeError(str(node.__class__.__name__))
-
     def visit_Program_Stmt(self, node):
         # Call the super class version of generic_visit (the one
         # that doesn't raise!)
         print('FOO!', node.use_names)
-        super().generic_visit(node)
+        self.visit_children(node)
 
     def visit_Main_Program(self, node):
         self.name = node.string
-        super().generic_visit(node)
+        self.visit_children(node)
 
     def visit_Specification_Part(self, node):
         self.specification.visit(node)
@@ -85,20 +101,13 @@ class ProgramVisitor(FVisitor):
         self.executions.append(node)
 
     def visit_Internal_Subprogram_Part(self, node):
-        super().generic_visit(node)
+        self.visit_children(node)
 
     def visit_Function_Subprogram(self, node):
         self.internal_subprogram.append(node)
 
     def visit_Subroutine_Subprogram(self, node):
         self.internal_subprogram.append(node)
-
-    def visit_Contains_Stmt(self, node):
-        # Drop this one.
-        pass
-
-    def visit_End_Program_Stmt(self, node):
-        pass
 
     @classmethod
     def combine(cls, programs):
@@ -111,11 +120,21 @@ class ProgramVisitor(FVisitor):
             program.internal_subprogram.extend(prog.internal_subprogram)
         return program
 
-class SpecificationVisitor(FVisitor):
+
+class SpecificationVisitor(ComponentVisitor):
+    """
+    Represents a specification-construct (R204)
+
+    """
+    pass_through_nodes = ['Specification_Part', 'Implicit_Part']
+
     def __init__(self):
+        # Note: all attributes must be handled in the `.combine`
+        # class method also.
         self.use_nodes = []
         self.implicit_nodes = []
         self.type_decl_nodes = []
+        self.derived_type_nodes = []
 
     def visit_Type_Declaration_Stmt(self, node):
         self.type_decl_nodes.append(node)
@@ -126,8 +145,18 @@ class SpecificationVisitor(FVisitor):
     def visit_Use_Stmt(self, node):
         self.use_nodes.append(node)
 
+    def visit_Derived_Type_Def(self, node):
+        self.derived_type_nodes.append(node)
+
     def __str__(self):
-        return '\n'.join(str(node) for node in (self.use_nodes + self.implicit_nodes + [''] + self.type_decl_nodes))
+        NEWLINE = ['']
+        nodes = (self.use_nodes +
+                 self.implicit_nodes +
+                 NEWLINE +
+                 self.derived_type_nodes +
+                 NEWLINE +
+                 self.type_decl_nodes)
+        return '\n'.join(str(node) for node in nodes)
 
     @classmethod
     def combine(cls, visitors):
@@ -138,72 +167,45 @@ class SpecificationVisitor(FVisitor):
             # TODO: We could do more here, like make sure we aren't
             # redefining entities.
             spec.type_decl_nodes.extend(specification.type_decl_nodes)
+            spec.derived_type_nodes.extend(specification.derived_type_nodes)
 
-        # TODO: We need to have only one implicit node.
+        # Drop all implicit nodes except the last.
         if len(spec.implicit_nodes) > 1:
             spec.implicit_nodes = spec.implicit_nodes[-1:]
         return spec
 
 
-class ProgramTransaction(FVisitor):
-    # Represents a cell's statements and definitions.
-    def __init__(self):
-        self.statement_nodes = []
-        self.definition_nodes = []
-        self.spec_nodes = []
-        self.modules = []
-        self.prog_preamble = []
-        self.program = ProgramVisitor()
-
-    def generic_visit(self, node):
-        pass_through_nodes = [
-            'Program', 'Main_Program', 'Program_Stmt',
-            'Internal_Subprogram_Part', 'Execution_Part',
-            'End_Program_Start', 'End_Program_Stmt',
-            'Contains_Stmt',
-        ]
-        this_node = node.__class__.__name__
-        if this_node not in pass_through_nodes:
-            raise RuntimeError('Unhandled node type {}'.format(this_node))
-        return super().generic_visit(node)
-
-    def visit_Main_Program(self, node):
-        self.program.visit(node)
-
-    def visit_Subroutine_Subprogram(self, node):
-        self.definition_nodes.append(node)
-
-    def visit_Function_Subprogram(self, node):
-        self.definition_nodes.append(node)
-
-    def visit_Specification_Part(self, node):
-        # Don't use fparser.two.utils.walk_ast here as we need to
-        # modify the node.
-        DeleteNodeType(['Implicit_Part']).visit(node)
-        self.spec_nodes.append(node)
-
-    def visit_Execution_Part(self, node):
-        # Note: We could drill down here (Print_Stmt, Assignment_Stmt) if
-        # we need more context (like which variables are being definied).
-        self.statement_nodes.append(node)
-
-    def visit_Type_Declaration_Stmt(self, node):
-        self.statement_nodes.append(node)
-
-    def visit_Module(self, node):
-        self.modules.append(node)
-
-
-class ClassPrinter(FVisitor):
-    def generic_visit(self, node):
-        print('-------------\n\n\n{}:\n\n{}'
-              ''.format(node.__class__.__name__, str(node)))
-        return super().generic_visit(node)
-
-
 def rstrip_lines(string):
     lines = [line.rstrip() for line in string.split('\n')]
     return '\n'.join(lines)
+
+
+PROGRAM_TEMPLATE = """
+{{ modules }}
+
+PROGRAM main
+  {{ program.specification|string|indent(2) }}
+
+{% if previous_program.executions %}
+  ! Redirect stdout to /dev/null for old statements
+  OPEN(unit=6, file="/dev/null", status="old")
+
+  {{ previous_program.executions|join('\n')|indent(2) }}
+
+  ! Re-enable stdout for new statements
+  OPEN(unit=6, file="/dev/stdout", status="old")
+{%- endif %}
+
+{% if this_program.executions %}
+  {{ this_program.executions|join('\n')|indent(2) }}
+{% endif %}
+
+{% if program.internal_subprogram %}
+  CONTAINS
+    {{ program.internal_subprogram|join('\n\n')|indent(4) }}
+{%- endif %}
+END PROGRAM main
+"""
 
 
 class FortranGatherer:
@@ -235,61 +237,28 @@ class FortranGatherer:
             reader = FortranStringReader(snippet)
             program = parser(reader)
 
-        cell_prog = ProgramTransaction()
-        cell_prog.visit(program)
+        cell_prog = Program.process(program)
         self.programs.append(cell_prog)
 
     def clear(self, ):
         del self.programs[:]
 
     def to_program(self):
-        TEMPLATE = """
-{{ modules }}
-
-PROGRAM main
-  {{ program.specification|string|indent(2) }}
-
-{% if previous_program.executions %}
-  ! Redirect stdout to /dev/null for old statements
-  OPEN(unit=6, file="/dev/null", status="old")
-
-  {{ previous_program.executions|join('\n')|indent(2) }}
-
-  ! Re-enable stdout for new statements
-  OPEN(unit=6, file="/dev/stdout", status="old")
-{%- endif %}
-
-{% if this_program.executions %}
-  {{ this_program.executions|join('\n')|indent(2) }}
-{% endif %}
-
-{% if program.internal_subprogram -%}
-  CONTAINS
-    {{ program.internal_subprogram|join('\n\n')|indent(4) }}
-{%- endif %}
-END PROGRAM main
-""".strip()
-
         template = jinja2.Environment(
-            loader=jinja2.BaseLoader).from_string(TEMPLATE)
+            loader=jinja2.BaseLoader).from_string(PROGRAM_TEMPLATE)
 
-        import textwrap
-        from itertools import chain
-
-        program = ProgramVisitor.combine(
+        program = MainProgram.combine(
             [prog.program for prog in self.programs])
-        previous_program = ProgramVisitor.combine(
+        previous_program = MainProgram.combine(
             [prog.program for prog in self.programs[:-1]])
 
-        # Note, in theory self.programs could be empty...
-        this_program = self.programs[-1].program
+        # Note: self.programs could be empty.
+        this_program = self.programs[-1:]
+        if this_program:
+            this_program = this_program[0].program
+        else:
+            this_program = MainProgram()
 
-        print('THIS:', this_program.executions)
-
-        # Note we have to do more to join spec parts (use, implicit, defn)
-        definitions = '\n'.join(
-            str(node) for node in chain.from_iterable(
-                [prog.definition_nodes for prog in self.programs]))
         modules = '\n'.join(
             str(node) for node in chain.from_iterable(
                 [prog.modules for prog in self.programs]))
@@ -298,9 +267,11 @@ END PROGRAM main
             program=program,
             previous_program=previous_program,
             this_program=this_program,
-            definitions=definitions,
             modules=modules,
             )
+        # Rather than trying to implement a perfect whitespace Jinja2
+        # template we post-process the result, stripping out spurious
+        # whitespace as much as possible.
         prog = rstrip_lines(prog)
         while '\n\n\n' in prog:
             prog = prog.replace('\n\n\n', '\n\n')
