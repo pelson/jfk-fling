@@ -57,6 +57,23 @@ class FortranKernel(Kernel):
                 ['-o', binary_filename])
         return self.create_jupyter_subprocess(args)
 
+    def split_magics(self, code):
+        code_lines = []
+        magics = []
+        lines = code.split('\n')
+
+        state = 'magics'
+        for line in lines:
+            if state == 'magics':
+                if line.startswith('%'):
+                    magics.append(line.lstrip('%'))
+                    continue
+                elif not line:
+                    continue
+            state = 'code'
+            code_lines.append(line)
+        return magics, '\n'.join(code_lines) 
+
     def do_execute(self, code, silent, store_history=True,
                    user_expressions=None, allow_stdin=False):
         response_template = {
@@ -64,17 +81,19 @@ class FortranKernel(Kernel):
             'payload': [], 'user_expressions': {}}
 
         fragment = False
-        if code.strip() == '%code':
+        magics, code = self.split_magics(code)
+
+        if 'code' in magics:
+            if code.strip():
+                self._write_to_stderr(
+                    'The %code magic must not have code body.') 
             self._write_to_stdout(self.gatherer.to_program())
             return response_template
-        elif code.strip() == '%clear':
+        elif 'clear' in magics:
             self.gatherer.clear()
-            return response_template
 
-        elif (code.strip().startswith('%fragment')
-              or code.strip().startswith('%%fragment')):
+        elif 'fragment' in magics:
             fragment = True
-            _, code = code.split('%fragment', 1)
             self.fragment_accumulator.append(code)
             return response_template
 
