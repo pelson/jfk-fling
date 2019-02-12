@@ -42,6 +42,7 @@ def read_case(fh):
              'expected': '\n'.join(program_expected).strip()}
             for number, program_input, program_expected in sections]
 
+
 @pytest.mark.parametrize("case_filename", sorted((HERE / 'cases').glob('case_*.txt')))
 def test_case(case_filename):
     with open(case_filename, 'r') as fh:

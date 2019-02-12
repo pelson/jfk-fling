@@ -1,0 +1,51 @@
+########
+Input[1]
+########
+
+PROGRAM main
+    CONTAINS
+        subroutine foo
+            print*, 'Foo'
+        end subroutine foo
+    END PROGRAM main
+
+########
+Output[1]
+########
+
+PROGRAM main
+
+  CONTAINS
+    SUBROUTINE foo
+      PRINT *, 'Foo'
+    END SUBROUTINE foo
+END PROGRAM main
+
+
+########
+Input[2]
+########
+
+PROGRAM main
+    CONTAINS
+        subroutine bar
+            print*, 'Foo'
+        end subroutine bar
+    END PROGRAM main
+
+########
+Output[2]
+########
+
+PROGRAM main
+
+  CONTAINS
+    SUBROUTINE foo
+      PRINT *, 'Foo'
+    END SUBROUTINE foo
+
+    SUBROUTINE bar
+      PRINT *, 'Foo'
+    END SUBROUTINE bar
+END PROGRAM main
+

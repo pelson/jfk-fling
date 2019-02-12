@@ -1,0 +1,51 @@
+########
+Input[1]
+########
+
+PROGRAM main
+        use foo
+        implicit none
+
+        INTEGER :: x
+
+    END PROGRAM main
+
+########
+Output[1]
+########
+
+PROGRAM main
+  USE foo
+  IMPLICIT NONE
+
+  INTEGER :: x
+
+END PROGRAM main
+
+
+########
+Input[2]
+########
+
+PROGRAM main
+        use bar
+        implicit None
+
+        INTEGER :: y
+
+    END PROGRAM main
+
+########
+Output[2]
+########
+
+PROGRAM main
+  USE foo
+  USE bar
+  IMPLICIT NONE
+
+  INTEGER :: x
+  INTEGER :: y
+
+END PROGRAM main
+
