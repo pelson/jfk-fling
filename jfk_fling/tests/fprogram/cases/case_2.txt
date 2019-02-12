@@ -1,0 +1,42 @@
+########
+Input[1]
+########
+
+SUBROUTINE main
+
+    print *, 'sub main'
+END SUBROUTINE main
+
+########
+Output[1]
+########
+
+PROGRAM main
+
+  CONTAINS
+    SUBROUTINE main
+      PRINT *, 'sub main'
+    END SUBROUTINE main
+END PROGRAM main
+
+
+########
+Input[2]
+########
+
+integer :: x
+
+########
+Output[2]
+########
+
+PROGRAM main
+
+  INTEGER :: x
+
+  CONTAINS
+    SUBROUTINE main
+      PRINT *, 'sub main'
+    END SUBROUTINE main
+END PROGRAM main
+

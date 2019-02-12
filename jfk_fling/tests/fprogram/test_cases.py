@@ -42,9 +42,9 @@ def read_case(fh):
              'expected': '\n'.join(program_expected).strip()}
             for number, program_input, program_expected in sections]
 
-@pytest.mark.parametrize("case_number", range(1, 2))
-def test_case(case_number):
-    with open(HERE / 'cases' / f'case_{case_number}.txt', 'r') as fh:
+@pytest.mark.parametrize("case_filename", sorted((HERE / 'cases').glob('case_*.txt')))
+def test_case(case_filename):
+    with open(case_filename, 'r') as fh:
         case = read_case(fh)
     
     g = FortranGatherer()
@@ -74,7 +74,7 @@ def test_case(case_number):
 
 
     if not correct:
-        with open(HERE / 'cases' / f'case_{case_number}.actual.txt', 'w') as fh:
+        with open(case_filename.parent / f'actual_{ case_filename.name}', 'w') as fh:
             fh.write('\n'.join(actual))
 
     assert first_fail[0] == first_fail[1], 'Mismatch for cell[{}]'.format(first_fail[2])
